@@ -10,6 +10,8 @@ A multi-agent AI system that recommends datasets from Singapore's Open Data Port
 
 All agents use OpenAI GPT-5.1 for reasoning and tool execution.
 
+If the OpenAI API is unavailable or `OPENAI_API_KEY` is missing/invalid, the app responds with a fallback message directing you to [data.gov.sg](https://data.gov.sg/).
+
 ### Tools Available to Agents
 
 - `get_dataset_metadata`: Fetch detailed schema for a specific dataset
