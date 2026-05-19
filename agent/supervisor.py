@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from prompt.registry import CATEGORY_KEYS
 from prompt.supervisor import SUPERVISOR_SYSTEM_PROMPT
 from config.config import llm
-from data.agency_mapping import get_categories_for_agencies
+from config.agency_mapping import get_categories_for_agencies
 from src.state import AgentState
 
 VALID_CATEGORIES = set(CATEGORY_KEYS)

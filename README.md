@@ -40,8 +40,7 @@ All agents use OpenAI GPT-5.1 for reasoning and tool execution.
 ask-sg-agencies/
 ├── app.py                 # Streamlit entrypoint
 ├── agent/                 # Supervisor, synthesizer, category agent runner
-├── config/                # LLM configuration (OpenAI)
-├── data/                  # Agency-to-category mapping
+├── config/                # LLM configuration and agency-to-category mapping
 ├── prompt/                # System prompts for each agent
 ├── tools/                 # Dataset search and metadata tools
 └── src/                   # State, graph, agent runner
