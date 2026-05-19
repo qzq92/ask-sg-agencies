@@ -75,7 +75,7 @@ def main():
 
         with st.chat_message("assistant"):
             status = st.empty()
-            status.info("Routing your query...")
+            status.info("🔍 Analyzing your query...")
             prior = st.session_state.messages[:-1]
             conversation_context = format_conversation_context(prior)
             result = {}
@@ -94,9 +94,11 @@ def main():
                     result = event
                     if "routed_categories" in event and event["routed_categories"]:
                         cats = ", ".join(event["routed_categories"])
-                        status.info(f"Searching categories: {cats}...")
+                        num_cats = len(event["routed_categories"])
+                        parallel_note = " (in parallel)" if num_cats > 1 else ""
+                        status.info(f"🔎 Searching {num_cats} categories{parallel_note}: {cats}...")
                     if "category_results" in event and event["category_results"]:
-                        status.info("Synthesizing recommendations...")
+                        status.info("✨ Synthesizing recommendations...")
 
                 final = result.get("final_response", "No recommendations.")
             except Exception as e:
