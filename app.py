@@ -1,10 +1,21 @@
 """Streamlit entrypoint for SG Open Data Dataset Recommender."""
 
+from config.win_ssl_fix import apply_windows_ssl_fix
+
+apply_windows_ssl_fix()
+
+import asyncio
+import os
 import re
 import streamlit as st
 
-from config.llm_errors import LLMServiceUnavailable, get_fallback_response, is_llm_service_error
-from src.graph import graph
+from config.llm_errors import (
+    LLMModelDeprecated,
+    LLMServiceUnavailable,
+    get_fallback_response,
+    is_llm_service_error,
+)
+from src.graph import get_graph
 
 
 def extract_dataset_links(text: str) -> list[tuple[str, str]]:
@@ -80,28 +91,49 @@ def main():
             prior = st.session_state.messages[:-1]
             conversation_context = format_conversation_context(prior)
             result = {}
+            
+            # Generate a thread_id for checkpointing (one per user session)
+            if "thread_id" not in st.session_state:
+                st.session_state.thread_id = f"thread_{hash(st.session_state.get('session_id', 'default'))}"
+            
+            config = {"configurable": {"thread_id": st.session_state.thread_id}}
+            
             try:
-                for event in graph.stream(
-                    {
-                        "messages": [],
-                        "user_query": prompt,
-                        "conversation_context": conversation_context,
-                        "routed_categories": [],
-                        "category_results": {},
-                        "final_response": "",
-                    },
-                    stream_mode="values",
-                ):
-                    result = event
-                    if "routed_categories" in event and event["routed_categories"]:
-                        cats = ", ".join(event["routed_categories"])
-                        num_cats = len(event["routed_categories"])
+                # Get the async graph instance
+                graph = asyncio.run(get_graph())
+                
+                # LangGraph v2 async streaming with memory checkpointing
+                async def stream_graph():
+                    async for update in graph.astream(
+                        {
+                            "messages": [],
+                            "user_query": prompt,
+                            "conversation_context": conversation_context,
+                            "routed_categories": [],
+                            "category_results": {},
+                            "final_response": "",
+                        },
+                        config=config,
+                        stream_mode="updates",
+                        version="v2",
+                    ):
+                        yield update
+                
+                for update in asyncio.run(stream_graph()):
+                    result.update(update)
+                    if os.getenv("DEBUG_STREAM", "0") == "1":
+                        print("Stream update:", update)
+                    if "routed_categories" in update and update["routed_categories"]:
+                        cats = ", ".join(update["routed_categories"])
+                        num_cats = len(update["routed_categories"])
                         parallel_note = " (in parallel)" if num_cats > 1 else ""
                         status.info(f"🔎 Searching {num_cats} categories{parallel_note}: {cats}...")
-                    if "category_results" in event and event["category_results"]:
+                    if "category_results" in update and update["category_results"]:
                         status.info("✨ Synthesizing recommendations...")
 
                 final = result.get("final_response", "No recommendations.")
+            except LLMModelDeprecated as e:
+                final = f"{e}\nPlease switch to a supported model (e.g., gpt-5.1)."
             except LLMServiceUnavailable:
                 final = get_fallback_response()
             except Exception as e:
