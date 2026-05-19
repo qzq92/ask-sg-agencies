@@ -7,10 +7,9 @@ from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
-# Perplexity API via OpenAI-compatible interface
+# OpenAI API - used for all agents
 llm = ChatOpenAI(
-    model="sonar-pro",
-    api_key=os.getenv("PPLX_API_KEY"),
-    base_url="https://api.perplexity.ai",
+    model="gpt-5.1",
+    api_key=os.getenv("OPENAI_API_KEY"),
     temperature=0,
 )
