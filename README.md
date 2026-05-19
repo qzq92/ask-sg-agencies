@@ -62,6 +62,20 @@ Remove-Item Env:SSLKEYLOGFILE -ErrorAction SilentlyContinue
 uv run streamlit run app.py
 ```
 
+### `SSL: CERTIFICATE_VERIFY_FAILED` / `APIConnectionError`
+
+This occurs when your network uses SSL inspection (corporate proxy, firewall, or antivirus intercepting HTTPS). Python's default certificate store doesn't trust these proxy certificates.
+
+**Solution:** Install `truststore` to use Windows' native certificate store:
+
+```powershell
+uv add truststore --native-tls
+```
+
+The `--native-tls` flag is required because uv itself may fail to connect to PyPI without it.
+
+Once installed, the app will automatically use Windows certificates on startup. If you're still having issues, ensure your corporate/proxy CA certificate is installed in Windows Certificate Manager.
+
 ## Project Structure
 
 ```
