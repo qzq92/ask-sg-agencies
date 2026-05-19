@@ -12,7 +12,6 @@ load_dotenv()
 
 # OpenAI API - used for all agents
 llm = ChatOpenAI(
-    model="gpt-5-mini",
-    api_key=os.getenv("OPENAI_API_KEY"),
-    temperature=0,
+    model="gpt-5.3",
+    api_key=os.getenv("OPENAI_API_KEY")
 )
