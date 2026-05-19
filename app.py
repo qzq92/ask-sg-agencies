@@ -1,11 +1,9 @@
 """Streamlit entrypoint for SG Open Data Dataset Recommender."""
 
-from config.win_ssl_fix import apply_windows_ssl_fix
-
-apply_windows_ssl_fix()
+from config.windows_patch import apply_windows_patch
+apply_windows_patch()
 
 import asyncio
-import os
 import re
 import streamlit as st
 
@@ -87,10 +85,12 @@ def main():
 
         with st.chat_message("assistant"):
             status = st.empty()
+            response_placeholder = st.empty()
             status.info("🔍 Analyzing your query...")
             prior = st.session_state.messages[:-1]
             conversation_context = format_conversation_context(prior)
             result = {}
+            streamed_response = ""
             
             # Generate a thread_id for checkpointing (one per user session)
             if "thread_id" not in st.session_state:
@@ -101,10 +101,11 @@ def main():
             try:
                 # Get the async graph instance
                 graph = asyncio.run(get_graph())
-                
-                # LangGraph v2 async streaming with memory checkpointing
-                async def stream_graph():
-                    async for update in graph.astream(
+
+                # Stream like app_main.py: token events + tool events + node completion events
+                async def consume_stream():
+                    nonlocal streamed_response, result
+                    resp = graph.astream_events(
                         {
                             "messages": [],
                             "user_query": prompt,
@@ -114,24 +115,50 @@ def main():
                             "final_response": "",
                         },
                         config=config,
-                        stream_mode="updates",
                         version="v2",
-                    ):
-                        yield update
-                
-                for update in asyncio.run(stream_graph()):
-                    result.update(update)
-                    if os.getenv("DEBUG_STREAM", "0") == "1":
-                        print("Stream update:", update)
-                    if "routed_categories" in update and update["routed_categories"]:
-                        cats = ", ".join(update["routed_categories"])
-                        num_cats = len(update["routed_categories"])
-                        parallel_note = " (in parallel)" if num_cats > 1 else ""
-                        status.info(f"🔎 Searching {num_cats} categories{parallel_note}: {cats}...")
-                    if "category_results" in update and update["category_results"]:
-                        status.info("✨ Synthesizing recommendations...")
+                    )
 
-                final = result.get("final_response", "No recommendations.")
+                    async for output in resp:
+                        event_type = output.get("event")
+                        print(f"Event: {event_type} | {output.get('name', '')}")
+
+                        if event_type == "on_chat_model_stream":
+                            chunk = output.get("data", {}).get("chunk")
+                            if chunk and hasattr(chunk, "content") and chunk.content:
+                                streamed_response += chunk.content
+                                response_placeholder.markdown(streamed_response + "▌")
+
+                        if event_type == "on_chat_model_end":
+                            model_output = output.get("data", {}).get("output")
+                            if model_output and getattr(model_output, "content", None):
+                                streamed_response += "\n\n"
+                                response_placeholder.markdown(streamed_response)
+
+                        if event_type == "on_tool_start":
+                            tool_name = output.get("name", "tool")
+                            status.info(f"🔧 Running `{tool_name}`...")
+
+                        if event_type == "on_tool_end":
+                            tool_name = output.get("name", "tool")
+                            status.info(f"✅ `{tool_name}` completed")
+
+                        if event_type == "on_chain_end":
+                            node_name = output.get("name", "")
+                            node_output = output.get("data", {}).get("output", {})
+                            if node_name == "supervisor" and "routed_categories" in node_output:
+                                result["routed_categories"] = node_output["routed_categories"]
+                                cats = ", ".join(node_output["routed_categories"])
+                                num_cats = len(node_output["routed_categories"])
+                                parallel_note = " (in parallel)" if num_cats > 1 else ""
+                                status.info(f"🔎 Searching {num_cats} categories{parallel_note}: {cats}...")
+                            if node_name == "category_agents" and "category_results" in node_output:
+                                result["category_results"] = node_output["category_results"]
+                                status.info("✨ Synthesizing recommendations...")
+                            if node_name == "synthesizer" and "final_response" in node_output:
+                                result["final_response"] = node_output["final_response"]
+                asyncio.run(consume_stream())
+                print(f"Streamed response: {streamed_response}")
+                final = result.get("final_response", streamed_response or "No recommendations.")
             except LLMModelDeprecated as e:
                 final = f"{e}\nPlease switch to a supported model (e.g., gpt-5.1)."
             except LLMServiceUnavailable:
@@ -144,7 +171,10 @@ def main():
                 )
 
             status.empty()
-            st.markdown(final)
+            if streamed_response:
+                response_placeholder.markdown(streamed_response)
+            else:
+                st.markdown(final)
             links = extract_dataset_links(final)
             if links:
                 st.markdown("**Recommended datasets:**")

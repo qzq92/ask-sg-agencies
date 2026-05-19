@@ -1,17 +1,7 @@
+from config.windows_patch import apply_windows_patch
+apply_windows_patch()
+
 import os
-import sys
-
-# Must unset SSLKEYLOGFILE before ANY imports that touch SSL/httpx/urllib3
-if sys.platform == "win32":
-    os.environ.pop("SSLKEYLOGFILE", None)
-
-# Use Windows native certificate store (trusts corporate proxy certs)
-try:
-    import truststore
-    truststore.inject_into_ssl()
-except ImportError:
-    pass
-
 from dotenv import load_dotenv
 load_dotenv()
 
