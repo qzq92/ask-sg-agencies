@@ -8,6 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from prompt.registry import CATEGORY_KEYS
 from prompt.supervisor import SUPERVISOR_SYSTEM_PROMPT
 from config.config import llm
+from data.agency_mapping import get_categories_for_agencies
 from src.state import AgentState
 
 VALID_CATEGORIES = set(CATEGORY_KEYS)
@@ -31,8 +32,14 @@ def supervisor_node(state: AgentState) -> dict:
             HumanMessage(content=content),
         ]
     )
-    content = response.content if hasattr(response, "content") else str(response)
-    categories = _parse_categories(content)
+    response_content = response.content if hasattr(response, "content") else str(response)
+    categories = _parse_categories(response_content)
+    
+    agency_categories = get_categories_for_agencies(user_query)
+    if agency_categories:
+        combined = list(dict.fromkeys(categories + agency_categories))
+        categories = combined[:3]
+    
     return {"routed_categories": categories}
 
 
