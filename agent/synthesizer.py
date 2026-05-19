@@ -4,6 +4,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from prompt.synthesizer import SYNTHESIZER_SYSTEM_PROMPT
 from config.config import llm
+from config.llm_errors import invoke_llm
 from src.state import AgentState
 
 
@@ -23,11 +24,12 @@ def synthesizer_node(state: AgentState) -> dict:
         parts.append(f"--- {cat} ---\n{rec}\n")
     combined = "\n".join(parts)
 
-    response = llm.invoke(
+    response = invoke_llm(
+        llm,
         [
             SystemMessage(content=SYNTHESIZER_SYSTEM_PROMPT),
             HumanMessage(content=combined),
-        ]
+        ],
     )
     content = response.content if hasattr(response, "content") else str(response)
     return {"final_response": content}

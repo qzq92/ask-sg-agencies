@@ -4,6 +4,7 @@ import json
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from config.config import llm
+from config.llm_errors import invoke_llm
 from tools.dataset import get_dataset_metadata, search_datasets, list_datasets_by_agency
 
 TOOLS = [get_dataset_metadata, search_datasets, list_datasets_by_agency]
@@ -19,7 +20,7 @@ def run_category_agent_with_tools(system_prompt: str, user_query: str) -> str:
     ]
     max_iterations = 10
     for _ in range(max_iterations):
-        response = model.invoke(messages)
+        response = invoke_llm(model, messages)
         messages.append(response)
         if not getattr(response, "tool_calls", None) or not response.tool_calls:
             return response.content

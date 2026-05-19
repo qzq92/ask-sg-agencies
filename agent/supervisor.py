@@ -9,6 +9,7 @@ from prompt.registry import CATEGORY_KEYS
 from prompt.supervisor import SUPERVISOR_SYSTEM_PROMPT
 from config.config import llm
 from config.agency_mapping import get_categories_for_agencies
+from config.llm_errors import invoke_llm
 from src.state import AgentState
 
 VALID_CATEGORIES = set(CATEGORY_KEYS)
@@ -26,11 +27,12 @@ def supervisor_node(state: AgentState) -> dict:
     else:
         content = f"User problem: {user_query}"
 
-    response = llm.invoke(
+    response = invoke_llm(
+        llm,
         [
             SystemMessage(content=SUPERVISOR_SYSTEM_PROMPT),
             HumanMessage(content=content),
-        ]
+        ],
     )
     response_content = response.content if hasattr(response, "content") else str(response)
     categories = _parse_categories(response_content)

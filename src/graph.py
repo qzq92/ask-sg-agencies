@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from agent.category_agent import run_category_agent
 from agent.synthesizer import synthesizer_node
 from agent.supervisor import supervisor_node
+from config.llm_errors import LLMServiceUnavailable
 from langgraph.graph import END, StateGraph
 
 from src.state import AgentState
@@ -19,6 +20,8 @@ def _run_agent_sync(args: tuple) -> tuple[str, str]:
     try:
         result = run_category_agent(cat, query)
         return (cat, result)
+    except LLMServiceUnavailable:
+        raise
     except Exception as e:
         return (cat, f"Error: {e}")
 
@@ -72,6 +75,8 @@ async def run_category_agents_node_async(state: AgentState) -> dict:
     
     results = {}
     for cat, result in zip(routed_categories, results_list):
+        if isinstance(result, LLMServiceUnavailable):
+            raise result
         if isinstance(result, Exception):
             results[cat] = f"Error: {result}"
         else:

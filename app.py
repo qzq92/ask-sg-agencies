@@ -3,6 +3,7 @@
 import re
 import streamlit as st
 
+from config.llm_errors import LLMServiceUnavailable, get_fallback_response, is_llm_service_error
 from src.graph import graph
 
 
@@ -101,8 +102,14 @@ def main():
                         status.info("✨ Synthesizing recommendations...")
 
                 final = result.get("final_response", "No recommendations.")
+            except LLMServiceUnavailable:
+                final = get_fallback_response()
             except Exception as e:
-                final = f"Error: {e}"
+                final = (
+                    get_fallback_response()
+                    if is_llm_service_error(e)
+                    else f"Error: {e}"
+                )
 
             status.empty()
             st.markdown(final)
