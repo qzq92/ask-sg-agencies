@@ -4,9 +4,9 @@ import json
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from config.config import llm
-from tools.dataset import get_dataset_metadata
+from tools.dataset import get_dataset_metadata, search_datasets, list_datasets_by_agency
 
-TOOLS = [get_dataset_metadata]
+TOOLS = [get_dataset_metadata, search_datasets, list_datasets_by_agency]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 
