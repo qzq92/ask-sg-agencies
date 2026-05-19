@@ -1,13 +1,16 @@
-"""LangGraph workflow: supervisor -> category agents (parallel) -> synthesizer."""
+"""LangGraph workflow: supervisor -> category agents (parallel) -> synthesizer.
+
+Uses async execution with memory checkpointing for efficiency.
+"""
 
 import asyncio
 import warnings
-from concurrent.futures import ThreadPoolExecutor
 
 from agent.category_agent import run_category_agent
 from agent.synthesizer import synthesizer_node
 from agent.supervisor import supervisor_node
 from config.llm_errors import LLMServiceUnavailable
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph
 
 from src.state import AgentState
@@ -18,44 +21,8 @@ MAX_PARALLEL_AGENTS = 3
 warnings.filterwarnings("ignore", message=".*ScriptRunContext.*")
 
 
-def _run_agent_sync(args: tuple) -> tuple[str, str]:
-    """Run a single category agent synchronously. Returns (category, result)."""
-    cat, query = args
-    try:
-        result = run_category_agent(cat, query)
-        return (cat, result)
-    except LLMServiceUnavailable:
-        raise
-    except Exception as e:
-        return (cat, f"Error: {e}")
-
-
-def run_category_agents_node(state: AgentState) -> dict:
-    """Run routed category agents in parallel using ThreadPoolExecutor."""
-    user_query = state.get("user_query", "")
-    conversation_context = state.get("conversation_context", "")
-    routed_categories = state.get("routed_categories", [])
-    
-    if not routed_categories:
-        return {"category_results": {}}
-    
-    query = (
-        f"{conversation_context}\n\nCurrent: {user_query}"
-        if conversation_context
-        else user_query
-    )
-    
-    tasks = [(cat, query) for cat in routed_categories]
-    
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_AGENTS) as executor:
-        results_list = list(executor.map(_run_agent_sync, tasks))
-    
-    results = dict(results_list)
-    return {"category_results": results}
-
-
 async def run_category_agents_node_async(state: AgentState) -> dict:
-    """Async version: run routed category agents in parallel."""
+    """Run routed category agents in parallel using asyncio."""
     user_query = state.get("user_query", "")
     conversation_context = state.get("conversation_context", "")
     routed_categories = state.get("routed_categories", [])
@@ -89,12 +56,15 @@ async def run_category_agents_node_async(state: AgentState) -> dict:
     return {"category_results": results}
 
 
-def build_graph():
-    """Build and compile the LangGraph workflow."""
+async def build_graph_async():
+    """Build and compile the async LangGraph workflow with memory checkpointing."""
+    # Use MemorySaver for in-memory checkpointing (simpler than SQLite)
+    memory = MemorySaver()
+    
     workflow = StateGraph(AgentState)
 
     workflow.add_node("supervisor", supervisor_node)
-    workflow.add_node("category_agents", run_category_agents_node)
+    workflow.add_node("category_agents", run_category_agents_node_async)
     workflow.add_node("synthesizer", synthesizer_node)
 
     workflow.set_entry_point("supervisor")
@@ -102,7 +72,16 @@ def build_graph():
     workflow.add_edge("category_agents", "synthesizer")
     workflow.add_edge("synthesizer", END)
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=memory)
 
 
-graph = build_graph()
+# Build graph on module import (async-safe lazy initialization)
+_graph = None
+
+
+async def get_graph():
+    """Get or build the graph instance (async singleton pattern)."""
+    global _graph
+    if _graph is None:
+        _graph = await build_graph_async()
+    return _graph
