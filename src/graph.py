@@ -1,6 +1,7 @@
 """LangGraph workflow: supervisor -> category agents (parallel) -> synthesizer."""
 
 import asyncio
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 
 from agent.category_agent import run_category_agent
@@ -12,6 +13,9 @@ from langgraph.graph import END, StateGraph
 from src.state import AgentState
 
 MAX_PARALLEL_AGENTS = 3
+
+# Suppress Streamlit ScriptRunContext warnings from parallel threads
+warnings.filterwarnings("ignore", message=".*ScriptRunContext.*")
 
 
 def _run_agent_sync(args: tuple) -> tuple[str, str]:
