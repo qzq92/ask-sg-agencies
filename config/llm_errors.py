@@ -18,6 +18,10 @@ class LLMServiceUnavailable(Exception):
     """Raised when OpenAI cannot be reached or the API key is invalid."""
 
 
+class LLMModelDeprecated(Exception):
+    """Raised when the configured LLM/model is deprecated or unavailable."""
+
+
 def is_api_key_configured() -> bool:
     """Return True if OPENAI_API_KEY is set and non-empty."""
     key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -27,6 +31,8 @@ def is_api_key_configured() -> bool:
 def is_llm_service_error(exc: BaseException) -> bool:
     """Return True if the exception indicates OpenAI is down or misconfigured."""
     if isinstance(exc, LLMServiceUnavailable):
+        return True
+    if isinstance(exc, LLMModelDeprecated):
         return True
 
     try:
@@ -52,6 +58,17 @@ def is_llm_service_error(exc: BaseException) -> bool:
             return True
         if isinstance(exc, APIStatusError) and getattr(exc, "status_code", 0) >= 500:
             return True
+
+        # Model errors surface as InvalidRequestError with codes like model_not_found / deprecated
+        try:
+            from openai import InvalidRequestError  # type: ignore
+        except ImportError:
+            InvalidRequestError = None  # type: ignore
+        if InvalidRequestError and isinstance(exc, InvalidRequestError):
+            code = getattr(exc, "code", "") or ""
+            message = str(exc).lower()
+            if code in {"model_not_found", "deprecated"} or "deprecated" in message:
+                return True
     except ImportError:
         pass
 
@@ -95,9 +112,17 @@ def invoke_llm(llm: Any, messages: list) -> Any:
 
     try:
         return llm.invoke(messages)
-    except LLMServiceUnavailable:
+    except (LLMServiceUnavailable, LLMModelDeprecated):
         raise
     except Exception as exc:
+        if isinstance(exc, LLMModelDeprecated):
+            raise
         if is_llm_service_error(exc):
+            # Differentiate model deprecation when we can
+            msg = str(exc).lower()
+            code = getattr(exc, "code", "") or ""
+            if "deprecated" in msg or code in {"model_not_found", "deprecated"}:
+                model = getattr(llm, "model_name", getattr(llm, "model", "unknown"))
+                raise LLMModelDeprecated(f"Model '{model}' appears deprecated or unavailable.") from exc
             raise LLMServiceUnavailable(str(exc)) from exc
         raise
