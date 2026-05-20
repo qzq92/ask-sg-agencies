@@ -26,10 +26,13 @@ Agency-to-category hints:
 - MSF → social
 - GovTech, IMDA → realtime_apis
 
-Respond with a JSON object containing exactly one field: "categories", which is a list with exactly ONE category key.
-Example: {"categories": ["housing"]}
-Example: {"categories": ["transport"]}
+Respond with a JSON object containing exactly one field: "category" (a single string key).
+Example: {"category": "housing"}
+Example: {"category": "transport"}
 
-Pick the single most relevant category. Be precise. If more than one category is relevant, pick the most specific one.
+If the user's query is unclear, off-topic, or you cannot determine a relevant category, respond with:
+{"category": "", "clarification": "your friendly message asking the user to clarify"}
+
+Pick the single most relevant category. Be precise.
 
 If "Conversation so far" is provided, use it to interpret follow-up questions (e.g. "the first one", "that dataset", "tell me more about it")."""
