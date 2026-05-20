@@ -3,6 +3,7 @@
 from config.windows_patch import apply_windows_patch
 apply_windows_patch()
 
+
 import asyncio
 import re
 import streamlit as st
@@ -91,7 +92,8 @@ def main():
             conversation_context = format_conversation_context(prior)
             result = {}
             streamed_response = ""
-            
+            is_error = False
+
             # Generate a thread_id for checkpointing (one per user session)
             if "thread_id" not in st.session_state:
                 st.session_state.thread_id = f"thread_{hash(st.session_state.get('session_id', 'default'))}"
@@ -110,8 +112,7 @@ def main():
                             "messages": [],
                             "user_query": prompt,
                             "conversation_context": conversation_context,
-                            "routed_categories": [],
-                            "category_results": {},
+                            "routed_category": "",
                             "final_response": "",
                         },
                         config=config,
@@ -120,19 +121,14 @@ def main():
 
                     async for output in resp:
                         event_type = output.get("event")
-                        print(f"Event: {event_type} | {output.get('name', '')}")
 
                         if event_type == "on_chat_model_stream":
-                            chunk = output.get("data", {}).get("chunk")
-                            if chunk and hasattr(chunk, "content") and chunk.content:
-                                streamed_response += chunk.content
-                                response_placeholder.markdown(streamed_response + "▌")
-
-                        if event_type == "on_chat_model_end":
-                            model_output = output.get("data", {}).get("output")
-                            if model_output and getattr(model_output, "content", None):
-                                streamed_response += "\n\n"
-                                response_placeholder.markdown(streamed_response)
+                            node = output.get("metadata", {}).get("langgraph_node", "")
+                            if node == "category_agent":
+                                chunk = output.get("data", {}).get("chunk")
+                                if chunk and hasattr(chunk, "content") and chunk.content:
+                                    streamed_response += chunk.content
+                                    response_placeholder.markdown(streamed_response + "▌")
 
                         if event_type == "on_tool_start":
                             tool_name = output.get("name", "tool")
@@ -145,25 +141,28 @@ def main():
                         if event_type == "on_chain_end":
                             node_name = output.get("name", "")
                             node_output = output.get("data", {}).get("output", {})
-                            if node_name == "supervisor" and "routed_categories" in node_output:
-                                result["routed_categories"] = node_output["routed_categories"]
-                                cats = ", ".join(node_output["routed_categories"])
-                                num_cats = len(node_output["routed_categories"])
-                                parallel_note = " (in parallel)" if num_cats > 1 else ""
-                                status.info(f"🔎 Searching {num_cats} categories{parallel_note}: {cats}...")
-                            if node_name == "category_agents" and "category_results" in node_output:
-                                result["category_results"] = node_output["category_results"]
-                                status.info("✨ Synthesizing recommendations...")
-                            if node_name == "synthesizer" and "final_response" in node_output:
+                            if node_name == "supervisor":
+                                cat = node_output.get("routed_category", "")
+                                if cat:
+                                    status.info(f"🔎 Searching category: {cat}...")
+                                if "final_response" in node_output:
+                                    result["final_response"] = node_output["final_response"]
+                            if node_name == "category_agent" and "final_response" in node_output:
                                 result["final_response"] = node_output["final_response"]
                 asyncio.run(consume_stream())
                 print(f"Streamed response: {streamed_response}")
                 final = result.get("final_response", streamed_response or "No recommendations.")
+                is_error = False
             except LLMModelDeprecated as e:
                 final = f"{e}\nPlease switch to a supported model (e.g., gpt-5.1)."
-            except LLMServiceUnavailable:
+                is_error = True
+            except LLMServiceUnavailable as e:
+                print(f"LLMServiceUnavailable: {e}")
                 final = get_fallback_response()
+                is_error = True
             except Exception as e:
+                print(f"Unhandled exception ({type(e).__name__}): {e}")
+                is_error = True
                 final = (
                     get_fallback_response()
                     if is_llm_service_error(e)
@@ -173,20 +172,20 @@ def main():
             status.empty()
             if streamed_response:
                 response_placeholder.markdown(streamed_response)
-            else:
-                st.markdown(final)
+            st.markdown(final)
             links = extract_dataset_links(final)
             if links:
                 st.markdown("**Recommended datasets:**")
                 render_dataset_cards(links)
 
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": final,
-                "links": links,
-            }
-        )
+        if not is_error:
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": final,
+                    "links": links,
+                }
+            )
 
 
 if __name__ == "__main__":
