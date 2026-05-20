@@ -1,17 +1,15 @@
 """Configuration and LLM initialization."""
 
 import os
-from config.win_ssl_fix import apply_windows_ssl_fix
-
-apply_windows_ssl_fix()
-
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
+from langchain.chat_models import init_chat_model
 
 load_dotenv()
+api_key = os.getenv("OPENAI_API_KEY")
 
 # OpenAI API - used for all agents
-llm = ChatOpenAI(
+llm = init_chat_model(
     model="gpt-5.3",
-    api_key=os.getenv("OPENAI_API_KEY")
+    model_provider="openai",
+    api_key=api_key,
 )
