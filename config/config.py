@@ -9,7 +9,7 @@ api_key = os.getenv("OPENAI_API_KEY")
 
 # OpenAI API - used for all agents
 llm = init_chat_model(
-    model="gpt-5.3",
-    model_provider="openai",
+    model="openai:gpt-5.3",
+    temperature=0.0,
     api_key=api_key,
 )
