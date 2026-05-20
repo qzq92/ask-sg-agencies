@@ -89,7 +89,6 @@ def is_llm_service_error(exc: BaseException) -> bool:
         "502",
         "503",
         "504",
-        "openai",
     )
     if any(marker in message for marker in error_markers):
         return True

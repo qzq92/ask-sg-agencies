@@ -12,7 +12,7 @@ api_key = os.getenv("OPENAI_API_KEY")
 print(f"API Key loaded: {bool(api_key)}, length: {len(api_key) if api_key else 0}")
 
 llm = init_chat_model(
-    model="gpt-5.3",
+    model="gpt-5.4",
     model_provider="openai",
     api_key=api_key,
 )
