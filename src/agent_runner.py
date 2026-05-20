@@ -11,6 +11,9 @@ TOOLS = [get_dataset_metadata, search_datasets, list_datasets_by_agency]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 
+MAX_ITERATIONS = 5
+
+
 def run_category_agent_with_tools(system_prompt: str, user_query: str) -> str:
     """Run a category agent (LLM + tools) until it returns a final response."""
     model = llm.bind_tools(TOOLS)
@@ -18,18 +21,19 @@ def run_category_agent_with_tools(system_prompt: str, user_query: str) -> str:
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_query),
     ]
-    response = invoke_llm(model, messages)
-    messages.append(response)
-    if not getattr(response, "tool_calls", None) or not response.tool_calls:
-        return response.content
-    for tc in response.tool_calls:
-        tool = TOOLS_BY_NAME.get(tc["name"])
-        if tool:
-            result = tool.invoke(tc.get("args", {}))
-            content = result if isinstance(result, str) else json.dumps(result)
-        else:
-            content = "Tool not found"
-        messages.append(
-            ToolMessage(content=content, tool_call_id=tc.get("id", ""))
-        )
-    return "Maximum iterations reached."
+    for _ in range(MAX_ITERATIONS):
+        response = invoke_llm(model, messages)
+        messages.append(response)
+        if not getattr(response, "tool_calls", None) or not response.tool_calls:
+            return response.content
+        for tc in response.tool_calls:
+            tool = TOOLS_BY_NAME.get(tc["name"])
+            if tool:
+                result = tool.invoke(tc.get("args", {}))
+                content = result if isinstance(result, str) else json.dumps(result)
+            else:
+                content = "Tool not found"
+            messages.append(
+                ToolMessage(content=content, tool_call_id=tc.get("id", ""))
+            )
+    return "Maximum iterations reached without a final response."
