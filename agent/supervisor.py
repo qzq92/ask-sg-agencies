@@ -1,4 +1,4 @@
-"""Supervisor agent: classifies user query and routes to category agents."""
+"""Supervisor agent: classifies user query and routes to a category agent."""
 
 import json
 import re
@@ -16,10 +16,13 @@ VALID_CATEGORIES = set(CATEGORY_KEYS)
 
 
 def supervisor_node(state: AgentState) -> dict:
-    """Classify user query and set routed_categories."""
+    """Classify user query and set routed_category."""
     user_query = state.get("user_query", "")
     if not user_query:
-        return {"routed_categories": ["economy"]}
+        return {
+            "routed_category": "",
+            "final_response": "I'd be happy to help you find datasets from Singapore's Open Data Portal. Could you please tell me what kind of data you're looking for?",
+        }
 
     context = state.get("conversation_context", "")
     if context:
@@ -35,25 +38,36 @@ def supervisor_node(state: AgentState) -> dict:
         ],
     )
     response_content = response.content if hasattr(response, "content") else str(response)
-    categories = _parse_categories(response_content)
+    category, clarification = _parse_category(response_content)
     
-    agency_categories = get_categories_for_agencies(user_query)
-    if agency_categories:
-        combined = list(dict.fromkeys(categories + agency_categories))
-        categories = combined[:3]
+    agency_category = get_categories_for_agencies(user_query)
+    if agency_category:
+        category = agency_category[0]
     
-    return {"routed_categories": categories}
+    if not category:
+        return {
+            "routed_category": "",
+            "final_response": clarification or "I'm not sure what kind of data you're looking for. Could you please describe your data needs or the problem you're trying to solve?",
+        }
+    
+    return {"routed_category": category}
 
 
-def _parse_categories(content: str) -> list[str]:
-    """Extract category list from LLM response."""
+def _parse_category(content: str) -> tuple[str, str]:
+    """Extract category and optional clarification from LLM response.
+    
+    Returns (category, clarification). Category is empty string if invalid/unclear.
+    """
     content = content.strip()
-    match = re.search(r"\{[^}]*\"categories\"[^}]*\[[^\]]*\]", content, re.DOTALL)
-    if match:
-        try:
+    try:
+        match = re.search(r"\{[^}]*\}", content, re.DOTALL)
+        if match:
             obj = json.loads(match.group(0))
-            cats = obj.get("categories", [])
-            return [c for c in cats if c in VALID_CATEGORIES][:3]
-        except json.JSONDecodeError:
-            pass
-    return ["economy"]
+            cat = obj.get("category", "")
+            clarification = obj.get("clarification", "")
+            if cat and cat in VALID_CATEGORIES:
+                return cat, ""
+            return "", clarification
+    except json.JSONDecodeError:
+        pass
+    return "", ""
