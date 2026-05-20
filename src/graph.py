@@ -11,16 +11,14 @@ from langgraph.graph import END, StateGraph
 from src.state import AgentState
 
 
-def run_single_category_agent_node(state: AgentState) -> dict:
-    """Run the first routed category agent and return its response."""
+def run_category_agent_node(state: AgentState) -> dict:
+    """Run the routed category agent and return its response."""
     user_query = state.get("user_query", "")
     conversation_context = state.get("conversation_context", "")
-    routed_categories = state.get("routed_categories", [])
+    routed_category = state.get("routed_category", "")
     
-    if not routed_categories:
-        return {"final_response": "No relevant category found for your query."}
-    
-    category = routed_categories[0]
+    if not routed_category:
+        return {}
     
     query = (
         f"{conversation_context}\n\nCurrent: {user_query}"
@@ -28,8 +26,15 @@ def run_single_category_agent_node(state: AgentState) -> dict:
         else user_query
     )
     
-    result = run_category_agent(category, query)
+    result = run_category_agent(routed_category, query)
     return {"final_response": result}
+
+
+def should_run_category_agent(state: AgentState) -> str:
+    """Determine whether to run category agent or end (for clarification)."""
+    if state.get("routed_category"):
+        return "category_agent"
+    return END
 
 
 async def build_graph_async():
@@ -39,10 +44,10 @@ async def build_graph_async():
     workflow = StateGraph(AgentState)
 
     workflow.add_node("supervisor", supervisor_node)
-    workflow.add_node("category_agent", run_single_category_agent_node)
+    workflow.add_node("category_agent", run_category_agent_node)
 
     workflow.set_entry_point("supervisor")
-    workflow.add_edge("supervisor", "category_agent")
+    workflow.add_conditional_edges("supervisor", should_run_category_agent)
     workflow.add_edge("category_agent", END)
 
     return workflow.compile(checkpointer=memory)

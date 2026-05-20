@@ -11,6 +11,5 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     user_query: str
     conversation_context: str
-    routed_categories: list[str]
-    category_results: dict[str, str]
+    routed_category: str
     final_response: str
