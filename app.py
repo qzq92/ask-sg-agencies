@@ -5,7 +5,6 @@ apply_windows_patch()
 
 
 import asyncio
-import re
 import streamlit as st
 
 from config.llm_errors import (
@@ -15,13 +14,6 @@ from config.llm_errors import (
     is_llm_service_error,
 )
 from src.graph import get_graph
-
-
-def extract_dataset_links(text: str) -> list[tuple[str, str]]:
-    """Extract dataset links from markdown-style URLs in text."""
-    pattern = r"https://data\.gov\.sg/datasets/(d_[a-f0-9]+)/view"
-    matches = re.findall(pattern, text)
-    return [(m, f"https://data.gov.sg/datasets/{m}/view") for m in matches]
 
 
 def format_conversation_context(messages: list) -> str:
@@ -38,32 +30,11 @@ def init_session_state():
         st.session_state.messages = []
 
 
-def render_dataset_cards(links: list[tuple[str, str]]):
-    """Render dataset links as formatted cards."""
-    for ds_id, url in links:
-        with st.container():
-            st.markdown(
-                f"""
-            <div style="
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                padding: 12px 16px;
-                margin: 8px 0;
-                background: #fafafa;
-            ">
-                <strong>Dataset:</strong> {ds_id}<br>
-                <a href="{url}" target="_blank">View on data.gov.sg →</a>
-            </div>
-            """,
-                unsafe_allow_html=True,
-            )
-
-
 def main():
     st.set_page_config(
         page_title="SG Open Data Dataset Recommender",
         page_icon="📊",
-        layout="centered",
+        layout="wide",
     )
     st.title("📊 SG Open Data Dataset Recommender")
     st.caption(
@@ -75,8 +46,6 @@ def main():
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-            if msg.get("links"):
-                render_dataset_cards(msg["links"])
 
     if prompt := st.chat_input("Describe your data problem or need..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -150,7 +119,6 @@ def main():
                             if node_name == "category_agent" and "final_response" in node_output:
                                 result["final_response"] = node_output["final_response"]
                 asyncio.run(consume_stream())
-                print(f"Streamed response: {streamed_response}")
                 final = result.get("final_response", streamed_response or "No recommendations.")
                 is_error = False
             except LLMModelDeprecated as e:
@@ -170,20 +138,14 @@ def main():
                 )
 
             status.empty()
-            if streamed_response:
-                response_placeholder.markdown(streamed_response)
-            st.markdown(final)
-            links = extract_dataset_links(final)
-            if links:
-                st.markdown("**Recommended datasets:**")
-                render_dataset_cards(links)
+            display = final or streamed_response or "No recommendations."
+            response_placeholder.markdown(display)
 
         if not is_error:
             st.session_state.messages.append(
                 {
                     "role": "assistant",
-                    "content": final,
-                    "links": links,
+                    "content": display,
                 }
             )
 
