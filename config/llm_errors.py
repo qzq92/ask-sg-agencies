@@ -1,7 +1,11 @@
 """OpenAI / LLM error detection and user-facing fallback responses."""
 
+from __future__ import annotations
+
 import os
-from typing import Any
+
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
 
 DATA_GOV_SG_URL = "https://data.gov.sg/"
 
@@ -104,24 +108,27 @@ def get_fallback_response() -> str:
     return FALLBACK_RESPONSE
 
 
-def invoke_llm(llm: Any, messages: list) -> Any:
+def invoke_llm(llm: BaseChatModel, messages: list[BaseMessage]) -> AIMessage:
     """Invoke the LLM, raising LLMServiceUnavailable on auth/outage errors."""
     if not is_api_key_configured():
         raise LLMServiceUnavailable("OPENAI_API_KEY is not configured")
 
     try:
-        return llm.invoke(messages)
+        response = llm.invoke(messages)
     except (LLMServiceUnavailable, LLMModelDeprecated):
         raise
     except Exception as exc:
-        if isinstance(exc, LLMModelDeprecated):
-            raise
         if is_llm_service_error(exc):
-            # Differentiate model deprecation when we can
             msg = str(exc).lower()
             code = getattr(exc, "code", "") or ""
             if "deprecated" in msg or code in {"model_not_found", "deprecated"}:
                 model = getattr(llm, "model_name", getattr(llm, "model", "unknown"))
-                raise LLMModelDeprecated(f"Model '{model}' appears deprecated or unavailable.") from exc
+                raise LLMModelDeprecated(
+                    f"Model '{model}' appears deprecated or unavailable."
+                ) from exc
             raise LLMServiceUnavailable(str(exc)) from exc
         raise
+
+    if isinstance(response, AIMessage):
+        return response
+    return AIMessage(content=str(response))

@@ -14,27 +14,52 @@ When a query is irrelevant or unclear, the supervisor responds with a friendly c
 
 ![Supervisor response to irrelevant input](img/irrelevant_input.jpg)
 
-When the OpenAI API is unavailable or the API key is invalid, the app shows a fallback message that directs users to [data.gov.sg](https://data.gov.sg/):
-
-![Fallback response when the LLM service is unavailable](img/sample_error.jpg)
 
 ## Architecture
 
-- **Supervisor Agent**: Classifies user queries and routes to the single most relevant category agent. Recognizes Singapore government agency names (HDB, LTA, MOH, etc.) and maps them to appropriate categories. Handles greetings, off-topic queries, and vague inputs with friendly clarification prompts.
-- **Category Agent**: One of 10 specialists (Arts & Culture, Education, Economy, Environment, Geospatial, Housing, Health, Social, Transport, Real-time APIs) selected by the supervisor per query.
+- **Supervisor Agent**: Classifies user queries and routes to one or more category agents (up to 3). Recognizes Singapore government agency names (HDB, LTA, MOH, etc.) and maps them to appropriate categories. Handles greetings, off-topic queries, and vague inputs with friendly clarification prompts.
+- **Category Agents**: One or more of 10 specialists (Arts & Culture, Education, Economy, Environment, Geospatial, Housing, Health, Social, Transport, Real-time APIs) run per query when multiple domains apply.
+- **Synthesizer Agent**: When more than one category is routed, merges specialist results into a single response with sections per domain.
 
 All agents use OpenAI GPT-5.4 for reasoning and tool execution.
 
-**Features:**
+### Why supervisor handover instead of one agent?
+
+A single monolithic agent could theoretically route, search, and recommend in one pass. This project uses a **supervisor → specialist handover** instead:
+
+| Concern | Supervisor handover | Single agent |
+|--------|---------------------|--------------|
+| **Prompt focus** | Supervisor only classifies; each category agent has a narrow, topic-specific prompt aligned with [data.gov.sg](https://data.gov.sg) browse URLs | One long prompt must cover all agencies, topics, and tool rules at once |
+| **Cost & latency** | Greetings, small talk, and off-topic queries stop at the supervisor with no dataset API or tool calls | Every turn may still trigger search tools unless heavily constrained in prompt |
+| **Maintainability** | New domains are added as a category prompt + registry entry without rewriting core behaviour | Changes to one topic risk regressions across unrelated categories |
+| **Portal alignment** | Categories mirror how the open data portal groups datasets (housing, transport, health, etc.) | Harder to keep recommendations consistent with portal structure |
+| **Tool use** | Only the routed specialist runs `search_collections`, `search_datasets`, and related tools | Higher risk of wrong tool choice or over-searching on simple routing tasks |
+
+The trade-off is extra LLM calls when multiple categories apply (specialists run sequentially in Phase 1).
+
+### Tools available to agents
+
+- `search_collections`: Find the closest matching collection and child dataset links (paginated live API)
+- `get_dataset_metadata`: Fetch detailed schema for a specific dataset
+- `search_datasets`: Search datasets by keywords with optional agency filter
+- `list_datasets_by_agency`: List datasets or collections for a specific agency
+
+### Features
 - Memory checkpointing with `MemorySaver` for conversation continuity within a session
 - Graceful handling of irrelevant queries without invoking any search tools
 - Fallback response when the OpenAI API is unavailable, directing users to [data.gov.sg](https://data.gov.sg/)
 
-### Tools Available to Agents
+### Known limitations
 
-- `get_dataset_metadata`: Fetch detailed schema for a specific dataset
-- `search_datasets`: Search datasets by keywords with optional agency filter
-- `list_datasets_by_agency`: List all datasets from a specific agency
+- **At most three data categories per search** — Each query is routed to a maximum of three category specialists (`MAX_ROUTED_CATEGORIES` in `config/routing.py`). If your question spans more domains (e.g. housing, transport, health, and environment), the supervisor and agency detection still identify multiple matches, but only the **top three most relevant** categories are searched. This caps LLM and tool usage; broader questions may omit datasets from categories that were not selected. The Streamlit UI shows a disclaimer for this limit.
+- **Sequential specialists (Phase 1)** — Multiple category agents run one after another, not in parallel, so multi-domain queries take longer.
+- **Routing is heuristic** — Classification uses an LLM plus agency keyword matching. Ambiguous or multi-agency queries may be routed to a suboptimal category.
+- **First collection search is slow** — `search_collections` loads all collections from the API (paginated) and caches them in memory for the process lifetime. The first call after startup can take tens of seconds.
+- **Dataset list API gaps** — Keyword search on the datasets endpoint does not always return agency-relevant rows; agency browsing may fall back to collection search rather than a full dataset catalogue.
+- **Singapore-only scope** — Queries are assumed to refer to Singapore government data unless stated otherwise.
+- **OpenAI dependency** — Requires a valid `OPENAI_API_KEY`; there is no local or offline model path.
+- **Session memory only** — `MemorySaver` keeps conversation state for the running app session, not across restarts or devices.
+- **Tool iteration cap** — Category agents stop after five tool rounds to avoid runaway loops, which can truncate complex multi-step searches.
 
 ## Setup
 
@@ -105,7 +130,7 @@ ask-sg-agencies/
 ├── agent/                 # Supervisor and category agent runner
 ├── config/                # LLM configuration, SSL patch, error handling
 ├── prompt/                # Jinja2 templates and system prompts for each agent
-│   └── templates/         # Shared base template and category_agent.jinja2
+│   └── templates/         # Jinja2 templates (category_agent, response_instructions)
 ├── tools/                 # Dataset search and metadata tools
 └── src/                   # State definition, LangGraph workflow, agent runner
 ```

@@ -1,10 +1,14 @@
 """Streamlit entrypoint for SG Open Data Dataset Recommender."""
 
+from __future__ import annotations
+
 from config.windows_patch import apply_windows_patch
+
 apply_windows_patch()
 
-
 import asyncio
+from typing import Literal, TypedDict
+
 import streamlit as st
 
 from config.llm_errors import (
@@ -13,24 +17,30 @@ from config.llm_errors import (
     get_fallback_response,
     is_llm_service_error,
 )
-from src.graph import get_graph
+from config.routing import MAX_ROUTED_CATEGORIES
+from src.graph import format_category_list, get_graph
 
 
-def format_conversation_context(messages: list) -> str:
+class ChatMessage(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+def format_conversation_context(messages: list[ChatMessage]) -> str:
     """Format prior messages for context. Excludes the current turn."""
     parts = []
-    for m in messages:
-        role = "User" if m["role"] == "user" else "Assistant"
-        parts.append(f"{role}: {m['content']}")
+    for message in messages:
+        role = "User" if message["role"] == "user" else "Assistant"
+        parts.append(f"{role}: {message['content']}")
     return "\n".join(parts) if parts else ""
 
 
-def init_session_state():
+def init_session_state() -> None:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
 
-def main():
+def main() -> None:
     st.set_page_config(
         page_title="SG Open Data Dataset Recommender",
         page_icon="📊",
@@ -39,6 +49,12 @@ def main():
     st.title("📊 SG Open Data Dataset Recommender")
     st.caption(
         "Describe your data problem and get relevant dataset recommendations from data.gov.sg"
+    )
+    st.info(
+        f"**Note:** Each search is limited to at most **{MAX_ROUTED_CATEGORIES} data categories**. "
+        "If your question spans more than that, only the top "
+        f"{MAX_ROUTED_CATEGORIES} most relevant categories are searched, to keep response time and "
+        "LLM usage reasonable."
     )
 
     init_session_state()
@@ -57,43 +73,45 @@ def main():
             status = st.empty()
             response_placeholder = st.empty()
             status.info("🔍 Analyzing your query...")
-            prior = st.session_state.messages[:-1]
+            prior: list[ChatMessage] = st.session_state.messages[:-1]
             conversation_context = format_conversation_context(prior)
-            result = {}
+            result: dict[str, str] = {}
             streamed_response = ""
             is_error = False
+            display = "No recommendations."
 
-            # Generate a thread_id for checkpointing (one per user session)
             if "thread_id" not in st.session_state:
-                st.session_state.thread_id = f"thread_{hash(st.session_state.get('session_id', 'default'))}"
-            
+                st.session_state.thread_id = (
+                    f"thread_{hash(st.session_state.get('session_id', 'default'))}"
+                )
+
             config = {"configurable": {"thread_id": st.session_state.thread_id}}
-            
+
             try:
-                # Get the async graph instance
                 graph = asyncio.run(get_graph())
 
-                # Stream like app_main.py: token events + tool events + node completion events
-                async def consume_stream():
+                async def consume_stream() -> None:
                     nonlocal streamed_response, result
-                    resp = graph.astream_events(
+                    stream = graph.astream_events(
                         {
                             "messages": [],
                             "user_query": prompt,
                             "conversation_context": conversation_context,
+                            "routed_categories": [],
                             "routed_category": "",
+                            "category_results": {},
                             "final_response": "",
                         },
                         config=config,
                         version="v2",
                     )
 
-                    async for output in resp:
+                    async for output in stream:
                         event_type = output.get("event")
+                        node = output.get("metadata", {}).get("langgraph_node", "")
 
                         if event_type == "on_chat_model_stream":
-                            node = output.get("metadata", {}).get("langgraph_node", "")
-                            if node == "category_agent":
+                            if node in ("category_agents", "synthesizer"):
                                 chunk = output.get("data", {}).get("chunk")
                                 if chunk and hasattr(chunk, "content") and chunk.content:
                                     streamed_response += chunk.content
@@ -111,34 +129,37 @@ def main():
                             node_name = output.get("name", "")
                             node_output = output.get("data", {}).get("output", {})
                             if node_name == "supervisor":
-                                cat = node_output.get("routed_category", "")
-                                if cat:
-                                    status.info(f"🔎 Searching category: {cat}...")
+                                categories = node_output.get("routed_categories", [])
+                                if categories:
+                                    labels = format_category_list(categories)
+                                    status.info(f"🔎 Searching: {labels}...")
                                 if "final_response" in node_output:
                                     result["final_response"] = node_output["final_response"]
-                            if node_name == "category_agent" and "final_response" in node_output:
+                            if node_name == "category_agents" and "final_response" in node_output:
                                 result["final_response"] = node_output["final_response"]
+                            if node_name == "synthesizer" and "final_response" in node_output:
+                                result["final_response"] = node_output["final_response"]
+
                 asyncio.run(consume_stream())
-                final = result.get("final_response", streamed_response or "No recommendations.")
-                is_error = False
-            except LLMModelDeprecated as e:
-                final = f"{e}\nPlease switch to a supported model (e.g., gpt-5.1)."
+                display = result.get("final_response", streamed_response or "No recommendations.")
+            except LLMModelDeprecated as exc:
+                display = f"{exc}\nPlease switch to a supported model (e.g., gpt-5.1)."
                 is_error = True
-            except LLMServiceUnavailable as e:
-                print(f"LLMServiceUnavailable: {e}")
-                final = get_fallback_response()
+            except LLMServiceUnavailable:
+                display = get_fallback_response()
                 is_error = True
-            except Exception as e:
-                print(f"Unhandled exception ({type(e).__name__}): {e}")
+            except (RuntimeError, asyncio.CancelledError) as exc:
+                display = f"Error: {exc}"
                 is_error = True
-                final = (
+            except Exception as exc:
+                is_error = True
+                display = (
                     get_fallback_response()
-                    if is_llm_service_error(e)
-                    else f"Error: {e}"
+                    if is_llm_service_error(exc)
+                    else f"Error: {exc}"
                 )
 
             status.empty()
-            display = final or streamed_response or "No recommendations."
             response_placeholder.markdown(display)
 
         if not is_error:

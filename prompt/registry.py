@@ -1,5 +1,7 @@
 """Prompt registry: maps category keys to system prompts."""
 
+from __future__ import annotations
+
 from prompt import arts_culture, education, economy, environment, geospatial
 from prompt import housing, health, social, transport, realtime_apis
 
@@ -16,7 +18,7 @@ CATEGORY_KEYS = [
     "realtime_apis",
 ]
 
-_PROMPTS = {
+_PROMPTS: dict[str, str] = {
     "arts_culture": arts_culture.ARTS_CULTURE_SYSTEM_PROMPT,
     "education": education.EDUCATION_SYSTEM_PROMPT,
     "economy": economy.ECONOMY_SYSTEM_PROMPT,

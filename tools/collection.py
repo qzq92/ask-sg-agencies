@@ -1,41 +1,57 @@
 """Collection search tools for data.gov.sg."""
 
+from __future__ import annotations
+
 from difflib import SequenceMatcher
 
 from langchain_core.tools import tool
 
 from config.agency_mapping import get_agency_search_terms
-from tools.datagov_api import DATA_GOV_SG_API_BASE, api_error, api_ok, get_json
+from tools.datagov_api import (
+    DATA_GOV_SG_API_BASE,
+    MAX_COLLECTION_PAGES,
+    CollectionRecord,
+    DataGovApiError,
+    api_ok,
+    request_json,
+)
 
-_collections_cache: list[dict] | None = None
+_collections_cache: list[CollectionRecord] | None = None
 
 
-def load_all_collections() -> list[dict]:
+def load_all_collections() -> list[CollectionRecord]:
+    """Fetch and cache all collections from the data.gov.sg API."""
     global _collections_cache
     if _collections_cache is not None:
         return _collections_cache
 
-    collections: list[dict] = []
-    page = 1
-    while True:
-        data = get_json(
+    collections: list[CollectionRecord] = []
+    for page in range(1, MAX_COLLECTION_PAGES + 1):
+        data = request_json(
             f"{DATA_GOV_SG_API_BASE}/v2/public/api/collections",
             params={"page": page},
             timeout=30,
         )
         if not api_ok(data):
-            break
+            error_msg = data.get("errorMsg") or f"Failed on page {page}"
+            raise DataGovApiError(error_msg)
+
         batch = data.get("data", {}).get("collections", [])
         if not batch:
             break
         collections.extend(batch)
-        page += 1
+
+    if not collections:
+        raise DataGovApiError("No collections returned from data.gov.sg.")
 
     _collections_cache = collections
     return collections
 
 
-def rank_collections(query: str, collections: list[dict]) -> list[tuple[float, dict]]:
+def rank_collections(
+    query: str,
+    collections: list[CollectionRecord],
+) -> list[tuple[float, CollectionRecord]]:
     extra_terms = get_agency_search_terms(query)
     scored = [
         (_score_collection(col, query, extra_terms), col)
@@ -46,7 +62,7 @@ def rank_collections(query: str, collections: list[dict]) -> list[tuple[float, d
     return scored
 
 
-def _collection_search_text(collection: dict) -> str:
+def _collection_search_text(collection: CollectionRecord) -> str:
     return " ".join(
         [
             collection.get("name", ""),
@@ -57,7 +73,11 @@ def _collection_search_text(collection: dict) -> str:
     ).lower()
 
 
-def _score_collection(collection: dict, query: str, extra_terms: list[str]) -> float:
+def _score_collection(
+    collection: CollectionRecord,
+    query: str,
+    extra_terms: list[str],
+) -> float:
     name = collection.get("name", "").lower()
     agency = collection.get("managedByAgencyName", "").lower()
     text = _collection_search_text(collection)
@@ -82,7 +102,7 @@ def _score_collection(collection: dict, query: str, extra_terms: list[str]) -> f
     return score
 
 
-def _format_collection(collection: dict, rank: int) -> str:
+def _format_collection(collection: CollectionRecord, rank: int) -> str:
     collection_id = collection.get("collectionId", "N/A")
     name = collection.get("name", "Untitled")
     agency = collection.get("managedByAgencyName", "Unknown")
@@ -124,9 +144,6 @@ def search_collections(query: str, limit: int = 5) -> str:
     """
     try:
         collections = load_all_collections()
-        if not collections:
-            return "No collections returned from data.gov.sg."
-
         top = rank_collections(query, collections)[: min(limit, 10)]
 
         if not top:
@@ -139,5 +156,5 @@ def search_collections(query: str, limit: int = 5) -> str:
             _format_collection(col, rank=i + 1) for i, (_, col) in enumerate(top)
         )
         return header + body
-    except Exception as e:
-        return f"Failed to search collections: {e}"
+    except DataGovApiError as exc:
+        return f"Failed to search collections: {exc}"

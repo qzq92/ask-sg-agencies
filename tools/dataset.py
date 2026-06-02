@@ -1,16 +1,19 @@
 """Dataset metadata and search tools for data.gov.sg."""
 
+from __future__ import annotations
+
 from langchain_core.tools import tool
 
 from config.agency_mapping import get_agency_search_terms
 from tools.collection import load_all_collections, rank_collections
 from tools.datagov_api import (
     DATA_GOV_SG_API_BASE,
+    DataGovApiError,
     agency_name,
     api_error,
     api_ok,
-    get_json,
     matches_agency,
+    request_json,
 )
 
 
@@ -26,7 +29,7 @@ def get_dataset_metadata(dataset_id: str) -> str:
     """
     url = f"{DATA_GOV_SG_API_BASE}/v2/public/api/datasets/{dataset_id}/metadata"
     try:
-        data = get_json(url, timeout=10)
+        data = request_json(url, timeout=10)
         if not api_ok(data) or "data" not in data:
             return api_error(data, "Unknown error")
         meta = data["data"]
@@ -36,13 +39,12 @@ def get_dataset_metadata(dataset_id: str) -> str:
             f"Last updated: {meta.get('lastUpdatedAt', 'N/A')}",
             f"Coverage: {meta.get('coverageStart', 'N/A')} to {meta.get('coverageEnd', 'N/A')}",
         ]
-        if "columnMetadata" in meta and meta["columnMetadata"]:
-            cm = meta["columnMetadata"]
-            if "order" in cm:
-                parts.append("Columns: " + ", ".join(cm["order"]))
+        column_metadata = meta.get("columnMetadata")
+        if column_metadata and column_metadata.get("order"):
+            parts.append("Columns: " + ", ".join(column_metadata["order"]))
         return "\n".join(parts)
-    except Exception as e:
-        return f"Failed to fetch metadata: {e}"
+    except DataGovApiError as exc:
+        return f"Failed to fetch metadata: {exc}"
 
 
 @tool
@@ -64,7 +66,7 @@ def search_datasets(query: str, agency: str = "", limit: int = 10) -> str:
     }
 
     try:
-        data = get_json(url, params=params, timeout=15)
+        data = request_json(url, params=params, timeout=15)
         if not api_ok(data):
             return api_error(data, "Search failed")
 
@@ -103,8 +105,8 @@ def search_datasets(query: str, agency: str = "", limit: int = 10) -> str:
 
         return header + "\n\n".join(results)
 
-    except Exception as e:
-        return f"Failed to search datasets: {e}"
+    except DataGovApiError as exc:
+        return f"Failed to search datasets: {exc}"
 
 
 @tool
@@ -124,7 +126,7 @@ def list_datasets_by_agency(agency: str, limit: int = 15) -> str:
     }
 
     try:
-        data = get_json(url, params=params, timeout=15)
+        data = request_json(url, params=params, timeout=15)
         if not api_ok(data):
             return api_error(data, "Search failed")
 
@@ -170,5 +172,5 @@ def list_datasets_by_agency(agency: str, limit: int = 15) -> str:
 
         return f"Datasets from {agency} ({len(filtered)} found):\n\n" + "\n".join(results)
 
-    except Exception as e:
-        return f"Failed to list datasets: {e}"
+    except DataGovApiError as exc:
+        return f"Failed to list datasets: {exc}"

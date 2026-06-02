@@ -1,12 +1,11 @@
 """Prompt templates package."""
 
-from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
 
-from prompt.templates.base import RESPONSE_INSTRUCTIONS
+from jinja2 import Environment, FileSystemLoader
 
 _template_dir = Path(__file__).parent
-_env = Environment(loader=FileSystemLoader(_template_dir))
+_env = Environment(loader=FileSystemLoader(_template_dir), trim_blocks=True, lstrip_blocks=True)
 
 
 def render_category_prompt(
@@ -22,5 +21,4 @@ def render_category_prompt(
         category_url=category_url,
         dataset_examples=dataset_examples,
         format_note=format_note,
-        response_instructions=RESPONSE_INSTRUCTIONS,
     )
