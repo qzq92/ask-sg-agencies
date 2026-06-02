@@ -5,9 +5,10 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from config.config import llm
 from config.llm_errors import invoke_llm
+from tools.collection import search_collections
 from tools.dataset import get_dataset_metadata, search_datasets, list_datasets_by_agency
 
-TOOLS = [get_dataset_metadata, search_datasets, list_datasets_by_agency]
+TOOLS = [get_dataset_metadata, search_datasets, list_datasets_by_agency, search_collections]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 
 
