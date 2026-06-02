@@ -187,3 +187,15 @@ def get_all_agencies() -> list[str]:
         if agency.isupper() or len(agency) <= 5:
             acronyms.add(agency)
     return sorted(acronyms)
+
+
+def get_agency_search_terms(text: str) -> list[str]:
+    """Return agency names and acronyms to match against API records."""
+    terms = {text.strip()}
+    text_upper = text.upper()
+
+    for agency in AGENCY_TO_CATEGORY:
+        if agency.upper() in text_upper or agency in text:
+            terms.add(agency)
+
+    return [term for term in terms if term]
