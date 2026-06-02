@@ -6,6 +6,10 @@ An agentic AI system that recommends datasets from Singapore's Open Data Portal 
 
 ![SG Open Data Dataset Recommender landing page](img/landing_page.jpg)
 
+For a relevant query (e.g. mentioning an agency like HDB), the category agent searches live data.gov.sg collections and returns a concise recommendation with direct links:
+
+![Example of a successful dataset recommendation](img/sample_response.jpg)
+
 When a query is irrelevant or unclear, the supervisor responds with a friendly clarification prompt rather than searching for datasets:
 
 ![Supervisor response to irrelevant input](img/irrelevant_input.jpg)
